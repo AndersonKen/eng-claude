@@ -1,0 +1,35 @@
+{
+  "description": "In eng project sessions, run eng-standards' guard_auditor.py (ES-040) on every edit, Bash call and settings change, through a launcher with a fixed PATH and a shim that finds the guard from the plugin's engstd_root option saved in user settings.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/engstd_guard.sh"
+            ],
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "ConfigChange": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/engstd_guard.sh"
+            ],
+            "timeout": 60
+          }
+        ],
+        "matcher": "user_settings|project_settings|local_settings"
+      }
+    ]
+  }
+}

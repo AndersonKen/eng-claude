@@ -1,0 +1,15 @@
+{
+  "name": "engstd-marketplace",
+  "description": "The engineering-standards plugin for Claude Code, served from its own repo.",
+  "owner": {
+    "name": "the owner"
+  },
+  "plugins": [
+    {
+      "name": "engstd",
+      "source": "./",
+      "description": "Five engineering skills, the eng-standards guard hook, and the /eng-init, /eng-pin-bump, /eng-audit and /eng-onboard commands.",
+      "category": "engineering"
+    }
+  ]
+}

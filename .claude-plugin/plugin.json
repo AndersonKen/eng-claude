@@ -1,0 +1,25 @@
+{
+  "name": "engstd",
+  "displayName": "Engineering standards",
+  "version": "0.1.1",
+  "description": "The hardware engineering standards in Claude Code: five skills, the eng-standards guard hook, and /eng-init, /eng-pin-bump, /eng-audit and /eng-onboard (ES-060).",
+  "author": {
+    "name": "the owner"
+  },
+  "keywords": [
+    "hardware",
+    "ecad",
+    "mcad",
+    "kicad",
+    "standards",
+    "guard"
+  ],
+  "userConfig": {
+    "engstd_root": {
+      "type": "directory",
+      "title": "eng-standards checkout",
+      "description": "The eng-standards clone (beside eng-tools in <STD>). The guard hook runs its hooks/guard_auditor.py in eng project sessions. ENGSTD_ROOT in the environment overrides it.",
+      "required": false
+    }
+  }
+}
