@@ -58,7 +58,9 @@ p = ti.get("file_path") or ""
 if p and (Path(os.path.realpath(p)).as_posix().startswith(AUDITOR.as_posix() + "/")
           or p.endswith("CLAUDE.md")):
     print("blocked by stub guard: " + AUDITOR.name, file=sys.stderr); sys.exit(2)
-if AUDITOR.as_posix() in (ti.get("command") or ""):
+# A command names the folder in `\` or `/`, any case, long or 8.3 form on Windows (ES-069).
+cmd = (ti.get("command") or "").replace("\\", "/").casefold()
+if any(a.as_posix().casefold() in cmd for a in (AUDITOR, Path(os.path.abspath(__file__)).parents[1])):
     print("blocked by stub guard: bash on " + AUDITOR.name, file=sys.stderr); sys.exit(2)
 sys.exit(0)
 '''
