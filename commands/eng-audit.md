@@ -10,6 +10,11 @@ Run the project's own pinned checkers - the copy at `_tools/eng-tools` in this r
 the version this project is held to - and report what they say. You report; you never decide
 a row yourself, and you never fix anything in this command.
 
+**On Windows** there is no `python3`: python.org installs `python.exe` and the `py` launcher,
+and the Store's `python3` is a stub that opens the Store. Wherever this command runs `python3`,
+run `py -3` instead (the Bash tool there is Git Bash). Python's UTF-8 mode must be on
+(`PYTHONUTF8=1`; `/eng-onboard` checks it) (ES-069).
+
 Arguments: `$ARGUMENTS` - board directories and/or mcad project directories. With none,
 find them: board dirs are folders holding a `KiCAD/` (or a `.kicad_pro`) with a `docs/`
 beside it; mcad projects are folders holding a `register.yaml`. List what you found and the

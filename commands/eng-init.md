@@ -9,6 +9,11 @@ disable-model-invocation: true
 Set up a project repo to follow the standards, using eng-tools' own initialiser. You run the
 script; you never hand-write what it writes.
 
+**On Windows** there is no `python3`: python.org installs `python.exe` and the `py` launcher,
+and the Store's `python3` is a stub that opens the Store. Wherever this command runs `python3`,
+run `py -3` instead (the Bash tool there is Git Bash). Python's UTF-8 mode must be on
+(`PYTHONUTF8=1`; `/eng-onboard` checks it) (ES-069).
+
 Arguments: `$ARGUMENTS` - the repo dir first (default: the current repo's top level,
 `git rev-parse --show-toplevel`), then any of `--board NAME` (repeatable), `--mcad PROJECT`
 (repeatable), `--eng-tools-ref REF`, `--eng-tools-url URL`. Pass them through unchanged; do

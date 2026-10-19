@@ -10,6 +10,11 @@ Move the eng-tools pin a project is held to. The pin is the version of the stand
 project is checked against, so it moves only by a deliberate, named commit
 (`eng-tools pin <old> -> <new>: <why>`), and that commit carries the pin and nothing else.
 
+**On Windows** there is no `python3`: python.org installs `python.exe` and the `py` launcher,
+and the Store's `python3` is a stub that opens the Store. Wherever this command runs `python3`,
+run `py -3` instead (the Bash tool there is Git Bash). Python's UTF-8 mode must be on
+(`PYTHONUTF8=1`; `/eng-onboard` checks it) (ES-069).
+
 Arguments: `$ARGUMENTS` - the project repo first (default: the current repo's top level),
 then `--to REF` (default: eng-tools `origin/main`, as the script fetches it) and
 `--why TEXT`. If no `--why` was given, ask for one: the script refuses to commit without it.

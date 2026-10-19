@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.0 — 2026-10-19
+
+Windows (ES-069):
+
+- `hooks/hooks.json` is shell form: `/bin/sh "${CLAUDE_PLUGIN_ROOT}/scripts/engstd_guard.sh"`,
+  run by `sh -c` on macOS and Linux and by Git Bash on Windows. The exec form (`command`
+  `/bin/sh` with `args`) is spawned without a shell, and on Windows `/bin/sh` is no executable,
+  so there every call was a hook error. `PowerShell` joins the PreToolUse matcher.
+- The launcher, on Windows, finds Python only in folders the system names: the py launcher,
+  then python.org installs (newest), then conda bases and scoop; never PATH, never the Store
+  alias. `PY_PYTHON` and the py launcher's other variables are unset.
+- The shim, on Windows, runs Git for Windows' `git.exe` from a known folder (CreateProcess
+  finds a bare `git` on the parent's PATH, whatever the child's env says), reads the settings
+  file from the profile folder rather than Git Bash's `HOME`, and compares submodule paths
+  without case.
+- Commands say to run `py -3` where they say `python3`; `/eng-onboard` checks Git for Windows,
+  UTF-8 mode and a Python the launcher finds.
+- Tests: platform-only tests are collected only where they can run; the Windows launcher
+  branch is tested on any OS through a copy with its folders pinned. 7 new mutants.
+
 ## 0.1.1 — 2026-10-02
 
 - mechanical-engineering-standard: section 4 (Environment) removed at the owner's request; the `mcad-env` skill covers environments. Security floor renumbered to 4.

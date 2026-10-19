@@ -91,7 +91,7 @@ without installing: `claude --plugin-dir "<STD>/eng-claude"`.
 **Then point it at the guard:** set the `engstd_root` option to `<STD>/eng-standards` when
 asked (or in `/plugin` → the plugin → configure), and check with `/engstd:eng-onboard`.
 
-Requirements: `python3` on the launcher's fixed PATH (`/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin`)
+Requirements (macOS and Linux; Windows is above): `python3` on the launcher's fixed PATH (`/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin`)
 for the hook; the shim is standard library and behaves the same on 3.9 and later, and the guard
 needs only the standard library. On a Mac without the Command Line Tools, `/usr/bin/python3` is
 the `xcrun` stub, which may prompt to install them. With no `python3` there at all, the hook
@@ -99,6 +99,31 @@ allows the call and, in what looks like an eng project, says **NOT GUARDED** in 
 `systemMessage`; elsewhere it stays silent. The commands need what
 the scripts they run need: Python ≥ 3.11 + PyYAML for eng-tools, `kicad-cli` for boards, the
 mcad env (`mcad-env` skill) for mechanical checks.
+
+### On Windows (ES-069)
+
+Native Windows works, with three things in place:
+
+1. **Git for Windows.** Claude Code runs a shell-form hook in its Git Bash, and the hook command
+   is `/bin/sh "<plugin>/scripts/engstd_guard.sh"`, which Git Bash resolves to its own `sh`.
+   Without Git Bash, Claude Code falls back to PowerShell and the hook cannot start (a hook
+   error on every call, never a silent pass). If Git is not on PATH, set
+   `CLAUDE_CODE_GIT_BASH_PATH` to its `bash.exe`.
+2. **A Python 3 the launcher can find.** It never takes one from PATH. It looks only in folders
+   Windows itself names (known folders, not environment variables), in this order: the `py`
+   launcher (`C:\Windows\py.exe`, or the per-user one under `%LOCALAPPDATA%\Programs\Python\Launcher`),
+   then python.org installs (the newest), then `miniforge3`, `miniconda3` and `anaconda3` in
+   your profile, then scoop's `python`. The Store's `python3` alias is never used. With none
+   found, a project session says **NOT GUARDED** on every call.
+3. **Python's UTF-8 mode**, once per machine: `setx PYTHONUTF8 1`, then restart Claude. The
+   tools read and write UTF-8 themselves; this makes their console output and the text of the
+   processes they run UTF-8 as well. The guard itself needs neither: its messages are ASCII.
+
+The shim reads the settings file from your profile folder (`%USERPROFILE%\.claude`, found
+through the system), not from Git Bash's `HOME`. git is Git for Windows' `git.exe`, also found
+through known folders. PowerShell, Claude Code's other shell tool on Windows, is guarded too.
+
+`/engstd:eng-onboard` checks all three.
 
 ### What the guard lets the commands do
 

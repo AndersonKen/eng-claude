@@ -8,6 +8,11 @@ disable-model-invocation: true
 Walk the user through Part 1 of `ONBOARDING.md` in eng-tools and check this machine. You check
 and report; the user does the installing, each step with their own yes.
 
+**On Windows** there is no `python3`: python.org installs `python.exe` and the `py` launcher,
+and the Store's `python3` is a stub that opens the Store. Wherever this command runs `python3`,
+run `py -3` instead (the Bash tool there is Git Bash). Python's UTF-8 mode must be on
+(`PYTHONUTF8=1`; `/eng-onboard` checks it) (ES-069).
+
 ## Find the tools
 
 Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/engstd_guard.py" --where`. It prints the
@@ -36,6 +41,9 @@ Do not restate it from memory; if the file is not there, say which path you chec
 | PyYAML | `python3 -c "import yaml; print(yaml.__version__)"` | imports |
 | KiCad CLI | `kicad-cli version` (on macOS also `/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli version`) | prints a version, 8 or newer |
 | git | `git --version` | prints a version |
+| Windows: Git for Windows | `git --version` prints `windows`; `bash --version` (the Bash tool runs it) | both print a version |
+| Windows: UTF-8 mode | `py -3 -c "import sys; print(sys.flags.utf8_mode)"` | prints `1` (set once with `setx PYTHONUTF8 1`, then restart Claude) |
+| Windows: hook Python | `py -3 --version`, else a python.org, conda or scoop install | one is found: the guard's launcher looks there, never on PATH |
 | eng-tools clone | `git -C "<STD>/eng-tools" rev-parse HEAD` | a commit |
 | eng-standards clone | `git -C "<STD>/eng-standards" rev-parse HEAD` | a commit |
 | side by side | both are direct children of the same `<STD>` | same parent |
@@ -44,7 +52,7 @@ Do not restate it from memory; if the file is not there, say which path you chec
 | guard location | `--where` prints `eng-standards:` (from the saved `engstd_root` option) and no "(ignored)" line | found |
 | skills | the five skills are available in this session (`ecad-design-document`, `mechanical-engineering-standard`, `mcad-env`, `git-concurrent-sessions`, `refresh-program-board`) - from this plugin or `~/.claude/skills/` | all five |
 
-If `python3` is older than 3.11, look for another interpreter before calling it FAIL (`python3.11`,
+Run the Windows rows only on Windows; elsewhere they are n/a. If `python3` is older than 3.11, look for another interpreter before calling it FAIL (`python3.11`,
 `python3.12`, the mcad env from the `mcad-env` skill) and name what you found.
 
 A check you could not run is MISSING, not PASS. Name the path or command for each.
