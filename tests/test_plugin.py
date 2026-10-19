@@ -844,13 +844,27 @@ def test_windows_launcher_runs_the_py_launcher_isolated_and_ignores_py_python(tm
 @only_on("posix")
 def test_windows_launcher_without_py_takes_the_newest_installed_python(tmp):
     copy, dirs = _windows_launcher(tmp)
-    for v in ("Python311", "Python313"):
+    for v in ("Python39", "Python311", "Python313"):            # as text, Python39 sorts last
         _fake_python(dirs["lad"] / "Programs" / "Python" / v / "python.exe", tmp)
+    _fake_python(dirs["pf"] / "Python312" / "python.exe", tmp)
+    _fake_python(dirs["home"] / "miniforge3" / "python.exe", tmp)
     r = _run_launcher(copy, {"CLAUDE_PROJECT_DIR": str(tmp)})
     assert r.returncode == 0, (r.returncode, r.stderr)
     argv = (tmp / "ran-python").read_text(encoding="utf-8").splitlines()
-    assert "/Python313/python.exe" in argv[0], f"not the newest: {argv}"
+    assert "/Python313/python.exe" in argv[0], f"not the newest python.org install: {argv}"
     assert argv[1] == "-I" and argv[2].endswith("/engstd_guard.py"), argv
+
+
+@only_on("posix")
+def test_windows_launcher_takes_conda_only_without_a_python_org_install(tmp):
+    copy, dirs = _windows_launcher(tmp)
+    for base in ("miniforge3", "anaconda3"):
+        _fake_python(dirs["home"] / base / "python.exe", tmp)
+    _fake_python(dirs["home"] / "scoop" / "apps" / "python" / "current" / "python.exe", tmp)
+    r = _run_launcher(copy, {"CLAUDE_PROJECT_DIR": str(tmp)})
+    assert r.returncode == 0, (r.returncode, r.stderr)
+    argv = (tmp / "ran-python").read_text(encoding="utf-8").splitlines()
+    assert argv[0].endswith("/miniforge3/python.exe"), f"not the first conda base: {argv}"
 
 
 def test_windows_scope_compares_submodule_paths_without_case(tmp):
@@ -938,6 +952,19 @@ def test_a_crashing_guard_is_not_turned_into_a_silent_pass(tmp):
     code, out, err = run_shim(edit("CRASH", proj), tmp, proj)
     assert code not in (0, 2), f"crash became exit {code}"
     assert err.strip(), "crash left no message"
+
+
+def test_a_project_path_in_any_script_is_reported_in_utf8_under_isolation(tmp):
+    """ES-069: started with -I (as the launcher does), the shim ignores PYTHONUTF8; its
+    messages must still be UTF-8, or on Windows a folder named in another script crashes it."""
+    missing = tmp / "projet \u00e9t\u00e9 \u9879\u76ee"
+    env = base_env(PATH=os.environ.get("PATH", "/usr/bin:/bin"), HOME=str(tmp),
+                   CLAUDE_PLUGIN_ROOT=str(ROOT), CLAUDE_PROJECT_DIR=str(missing), **settings_dir(tmp))
+    r = subprocess.run([sys.executable, "-I", str(SHIM)], input=b"{}", stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE, env=env, timeout=60)
+    assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+    msg = json.loads(r.stdout.decode("utf-8"))["systemMessage"]
+    assert "NOT GUARDED" in msg and "\u9879\u76ee" in msg, msg
 
 
 def test_unparseable_stdin_is_handed_to_the_guard_unchanged(tmp):
@@ -1136,8 +1163,14 @@ MUTANTS = [
      "unset PY_PYTHON PY_PYTHON3 PYLAUNCHER_ALLOW_INSTALL PYLAUNCHER_ALWAYS_INSTALL\n", "\n"),
     ("scripts/engstd_guard.sh", "the py launcher runs without -I",
      'exec "$py" -3 -I "$(dirname "$0")/engstd_guard.py"', 'exec "$py" -3 "$(dirname "$0")/engstd_guard.py"'),
-    ("scripts/engstd_guard.sh", "the Windows launcher takes the oldest Python",
-     '[ -f "$py" ] && found=$py', '[ -f "$py" ] && [ -z "$found" ] && found=$py'),
+    ("scripts/engstd_guard.sh", "the Windows launcher takes the last Python, not the newest",
+     'if [ "$v" -gt "$best" ]; then found=$py best=$v; fi', 'found=$py best=$v'),
+    ("scripts/engstd_guard.sh", "the Windows launcher compares versions as text",
+     "v=${py%/python.exe}; v=${v##*/Python3}; v=${v%%-*}", "v=1"),
+    ("scripts/engstd_guard.sh", "conda wins over a python.org install",
+     '        if [ -z "$found" ]; then\n            for py in "$home"/miniforge3', '        if true; then\n            for py in "$home"/miniforge3'),
+    ("scripts/engstd_guard.sh", "the last conda base wins",
+     "                if [ -f \"$py\" ]; then found=$py; break; fi", "                if [ -f \"$py\" ]; then found=$py; fi"),
     ("scripts/engstd_guard.sh", "no Windows Python is silent even in a project",
      '        not_guarded "no Python 3 found', '        exit 0; not_guarded "no Python 3 found'),
     ("scripts/engstd_guard.py", "Windows scope compares submodule paths with case",

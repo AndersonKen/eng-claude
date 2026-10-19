@@ -292,6 +292,13 @@ def _say(text, stdout, stderr):
 
 def main(stdin=None, stdout=None, stderr=None, env=None, python=None):
     stdin = stdin if stdin is not None else sys.stdin.buffer
+    for stream in (stdout, stderr):
+        if stream is None:
+            # -I drops PYTHONUTF8, so on Windows these would be the ANSI code page, and a path
+            # it cannot spell would crash the shim; Claude Code reads UTF-8 (ES-069).
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+            break
     stdout = stdout if stdout is not None else sys.stdout
     stderr = stderr if stderr is not None else sys.stderr
     env = os.environ if env is None else env

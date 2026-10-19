@@ -117,7 +117,8 @@ Native Windows works, with three things in place:
    found, a project session says **NOT GUARDED** on every call.
 3. **Python's UTF-8 mode**, once per machine: `setx PYTHONUTF8 1`, then restart Claude. The
    tools read and write UTF-8 themselves; this makes their console output and the text of the
-   processes they run UTF-8 as well. The guard itself needs neither: its messages are ASCII.
+   processes they run UTF-8 as well. The guard does not depend on it: it runs isolated (`-I`,
+which ignores `PYTHONUTF8`), so it reads each event and writes each message as UTF-8 itself.
 
 The shim reads the settings file from your profile folder (`%USERPROFILE%\.claude`, found
 through the system), not from Git Bash's `HOME`. git is Git for Windows' `git.exe`, also found

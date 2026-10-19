@@ -48,12 +48,21 @@ case $(uname -s 2>/dev/null) in
                 exec "$py" -3 -I "$(dirname "$0")/engstd_guard.py" "$@"
             fi
         done
-        found=
-        for py in "$lad"/Programs/Python/Python3*/python.exe "$pf"/Python3*/python.exe \
-                  "$home"/miniforge3/python.exe "$home"/miniconda3/python.exe \
-                  "$home"/anaconda3/python.exe "$home"/scoop/apps/python/current/python.exe; do
-            [ -f "$py" ] && found=$py               # globs sort ascending: the newest wins
+        # The newest python.org install by its minor version (globs sort as text: Python39 would
+        # follow Python313); only without one, the first conda base, then scoop.
+        found= best=-1
+        for py in "$lad"/Programs/Python/Python3*/python.exe "$pf"/Python3*/python.exe; do
+            [ -f "$py" ] || continue
+            v=${py%/python.exe}; v=${v##*/Python3}; v=${v%%-*}       # .../Python313-32 -> 13
+            case $v in ''|*[!0-9]*) continue ;; esac
+            if [ "$v" -gt "$best" ]; then found=$py best=$v; fi
         done
+        if [ -z "$found" ]; then
+            for py in "$home"/miniforge3/python.exe "$home"/miniconda3/python.exe \
+                      "$home"/anaconda3/python.exe "$home"/scoop/apps/python/current/python.exe; do
+                if [ -f "$py" ]; then found=$py; break; fi
+            done
+        fi
         if [ -n "$found" ]; then
             exec "$found" -I "$(dirname "$0")/engstd_guard.py" "$@"
         fi
