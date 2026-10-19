@@ -1,0 +1,9 @@
+# Every checkout has LF line endings, Windows included. Git for Windows converts text files
+# to CRLF on checkout by default (core.autocrlf=true); that breaks the shell scripts and changes
+# the bytes that SHA-256 checks, snapshots and fixtures compare. Committed blobs are unchanged.
+* text=auto eol=lf
+*.pdf binary
+*.png binary
+*.jpg binary
+*.step -text
+*.stp -text
