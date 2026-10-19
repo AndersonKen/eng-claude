@@ -141,7 +141,7 @@ def make_std(tmp, guard_text=STUB_GUARD, name="std"):
     std = tmp / name
     (std / "eng-standards" / "hooks").mkdir(parents=True)
     (std / "eng-tools").mkdir()
-    (std / "eng-standards" / "hooks" / "guard_auditor.py").write_text(guard_text)
+    (std / "eng-standards" / "hooks" / "guard_auditor.py").write_text(guard_text, encoding="utf-8", newline="\n")
     return std
 
 
@@ -150,11 +150,11 @@ def make_repo(tmp, name, sub_path=None, commit=True):
     p = tmp / name
     p.mkdir(parents=True)
     git(p, "init", "-q")
-    (p / "README").write_text("x\n")
+    (p / "README").write_text("x\n", encoding="utf-8", newline="\n")
     git(p, "add", "README")
     if sub_path:
         (p / ".gitmodules").write_text(f'[submodule "{sub_path}"]\n\tpath = {sub_path}\n'
-                                       "\turl = https://example.invalid/eng-tools.git\n")
+                                       "\turl = https://example.invalid/eng-tools.git\n", encoding="utf-8", newline="\n")
         (p / sub_path).mkdir(parents=True)
         git(p, "add", ".gitmodules")
         git(p, "update-index", "--add", "--cacheinfo", f"160000,{FAKE_SHA},{sub_path}")
@@ -176,7 +176,7 @@ def settings_dir(tmp):
 def set_option(tmp, value, key="engstd@engstd-marketplace"):
     cfg = tmp / "home" / ".claude"
     cfg.mkdir(parents=True, exist_ok=True)
-    (cfg / "settings.json").write_text(json.dumps({"pluginConfigs": {key: {"engstd_root": str(value)}}}))
+    (cfg / "settings.json").write_text(json.dumps({"pluginConfigs": {key: {"engstd_root": str(value)}}}), encoding="utf-8", newline="\n")
 
 
 def run_shim(event, tmp, project_dir=None, env_extra=None, raw=None):
@@ -247,14 +247,14 @@ def test_plugin_and_marketplace_agree_and_the_version_is_in_the_changelog(tmp):
     assert entry, "the marketplace does not list this plugin"
     assert entry[0]["source"] in ("./", "."), entry[0]["source"]
     assert "version" not in entry[0], "version set in both places; plugin.json wins silently"
-    top = re.search(r"^## (\S+)", (ROOT / "CHANGELOG.md").read_text(), re.M)
+    top = re.search(r"^## (\S+)", (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), re.M)
     assert top and top.group(1) == p.get("version"), (p.get("version"), top and top.group(1))
 
 
 def test_plugin_declares_the_engstd_root_option(tmp):
     opt = C.load_json(ROOT / ".claude-plugin" / "plugin.json")["userConfig"]["engstd_root"]
     assert opt["type"] == "directory" and opt["title"] and opt["description"], opt
-    assert "pluginConfigs" in SHIM.read_text(), "the shim does not read the saved option"
+    assert "pluginConfigs" in SHIM.read_text(encoding="utf-8"), "the shim does not read the saved option"
 
 
 # Shell form (no `args`): sh -c on macOS and Linux, Git Bash on Windows. The exec form
@@ -306,14 +306,14 @@ def test_every_command_parses_and_states_the_ask_first_list(tmp):
 
 
 def test_init_dry_runs_first_and_names_what_the_real_run_writes(tmp):
-    init = (ROOT / "commands" / "eng-init.md").read_text()
+    init = (ROOT / "commands" / "eng-init.md").read_text(encoding="utf-8")
     assert "--dry-run" in init and init.index("--dry-run") < init.index("Real run"), "no dry run first"
     ask = init[init.index("2. **Ask"):init.index("3. **Real run")]
     assert "CLAUDE.md" in ask and ".claude/settings.json" in ask, "the ask does not name the settings files"
 
 
 def test_pin_bump_dry_run_then_one_commit_run_then_a_plain_push(tmp):
-    pin = (ROOT / "commands" / "eng-pin-bump.md").read_text()
+    pin = (ROOT / "commands" / "eng-pin-bump.md").read_text(encoding="utf-8")
     steps = pin[pin.index("## Steps"):]
     assert steps.index("--dry-run") < steps.index("--commit") < steps.index("git -C <project-repo> push")
     assert "--push" not in steps, "the command still pushes through the script"
@@ -323,7 +323,7 @@ def test_pin_bump_dry_run_then_one_commit_run_then_a_plain_push(tmp):
 
 
 def test_audit_reports_rows_not_exit_codes_and_never_folds_missing_into_pass(tmp):
-    a = (ROOT / "commands" / "eng-audit.md").read_text()
+    a = (ROOT / "commands" / "eng-audit.md").read_text(encoding="utf-8")
     for needle in ("check_standard.py", "check_sch.py", "--all", "check_register.py",
                    "_tools/eng-tools", "MISSING is never", "exits 2 when it printed every row",
                    "**WARN**", "**n/a**"):
@@ -343,7 +343,7 @@ def _script_help(script):
 def test_command_flags_exist_in_the_scripts_help(tmp):
     absent = []
     for cmd, script in (("eng-init", "init_project.py"), ("eng-pin-bump", "pin_bump.py")):
-        text = (ROOT / "commands" / f"{cmd}.md").read_text()
+        text = (ROOT / "commands" / f"{cmd}.md").read_text(encoding="utf-8")
         used = set(re.findall(r"(--[a-z][a-z-]+)", text)) - {"--help", "--where", "--show-toplevel",
                                                            "--abbrev-ref", "--symbolic-full-name",
                                                            "--short", "--stat"}
@@ -367,19 +367,19 @@ def _copy_tree(tmp):
 
 def test_checks_flag_a_skill_with_no_frontmatter(tmp):
     d = _copy_tree(tmp)
-    (d / "skills" / "mcad-env" / "SKILL.md").write_text("# no frontmatter here\n")
+    (d / "skills" / "mcad-env" / "SKILL.md").write_text("# no frontmatter here\n", encoding="utf-8", newline="\n")
     assert any("no frontmatter" in p for p in C.check_skills(d)), C.check_skills(d)
 
 
 def test_checks_flag_a_skill_with_no_description(tmp):
     d = _copy_tree(tmp)
-    (d / "skills" / "mcad-env" / "SKILL.md").write_text("---\nname: mcad-env\n---\nbody\n")
+    (d / "skills" / "mcad-env" / "SKILL.md").write_text("---\nname: mcad-env\n---\nbody\n", encoding="utf-8", newline="\n")
     assert any("description" in p for p in C.check_skills(d)), C.check_skills(d)
 
 
 def test_checks_flag_a_command_whose_frontmatter_does_not_parse(tmp):
     d = _copy_tree(tmp)
-    (d / "commands" / "eng-audit.md").write_text("---\ndescription: \"unclosed\n---\nbody\n")
+    (d / "commands" / "eng-audit.md").write_text("---\ndescription: \"unclosed\n---\nbody\n", encoding="utf-8", newline="\n")
     assert C.check_commands(d), "a broken command file passed"
 
 
@@ -388,7 +388,7 @@ def test_checks_flag_a_plugin_json_without_a_name(tmp):
     f = d / ".claude-plugin" / "plugin.json"
     m = C.load_json(f)
     del m["name"]
-    f.write_text(json.dumps(m))
+    f.write_text(json.dumps(m), encoding="utf-8", newline="\n")
     assert any("`name` is required" in p for p in C.check_plugin_manifest(d))
 
 
@@ -397,7 +397,7 @@ def test_checks_flag_a_marketplace_without_an_owner(tmp):
     f = d / ".claude-plugin" / "marketplace.json"
     m = C.load_json(f)
     del m["owner"]
-    f.write_text(json.dumps(m))
+    f.write_text(json.dumps(m), encoding="utf-8", newline="\n")
     assert any("owner" in p for p in C.check_marketplace(d))
 
 
@@ -406,14 +406,14 @@ def test_checks_flag_a_source_that_climbs_out(tmp):
     f = d / ".claude-plugin" / "marketplace.json"
     m = C.load_json(f)
     m["plugins"][0]["source"] = "./../elsewhere"
-    f.write_text(json.dumps(m))
+    f.write_text(json.dumps(m), encoding="utf-8", newline="\n")
     assert any("contains .." in p for p in C.check_marketplace(d)), C.check_marketplace(d)
 
 
 def test_checks_flag_a_hooks_file_without_the_wrapper(tmp):
     d = _copy_tree(tmp)
     f = d / "hooks" / "hooks.json"
-    f.write_text(json.dumps(C.load_json(f)["hooks"]))
+    f.write_text(json.dumps(C.load_json(f)["hooks"]), encoding="utf-8", newline="\n")
     assert any("top-level" in p for p in C.check_hooks(d)), C.check_hooks(d)
 
 
@@ -497,7 +497,7 @@ def _fresh_init_repo(tmp):
     file, nothing committed beyond the first commit."""
     proj = make_repo(tmp, "fresh")
     (proj / ".gitmodules").write_text('[submodule "_tools/eng-tools"]\n\tpath = _tools/eng-tools\n'
-                                      "\turl = https://example.invalid/eng-tools.git\n")
+                                      "\turl = https://example.invalid/eng-tools.git\n", encoding="utf-8", newline="\n")
     (proj / "_tools" / "eng-tools").mkdir(parents=True)
     git(proj / "_tools" / "eng-tools", "init", "-q")                 # the checkout's own .git
     git(proj, "add", ".gitmodules")
@@ -525,11 +525,11 @@ def test_scope_each_signal_alone_keeps_the_session_in_scope(tmp):
     cases = {}
     p = make_repo(tmp / "a", "only-dotgit")                          # only _tools/eng-tools/.git
     (p / "_tools" / "eng-tools").mkdir(parents=True)
-    (p / "_tools" / "eng-tools" / ".git").write_text("gitdir: x\n")
+    (p / "_tools" / "eng-tools" / ".git").write_text("gitdir: x\n", encoding="utf-8", newline="\n")
     cases["working-tree _tools/eng-tools/.git"] = p
     p = make_repo(tmp / "b", "only-gitmodules")                      # only the working-tree .gitmodules
     (p / ".gitmodules").write_text('[submodule "x"]\n\tpath = ECAD/_tools/eng-tools\n'
-                                   "\turl = git@example.invalid:o/eng-tools.git\n")
+                                   "\turl = git@example.invalid:o/eng-tools.git\n", encoding="utf-8", newline="\n")
     cases["working-tree .gitmodules"] = p
     p = make_project(tmp / "c", "only-head")                         # only the gitlink at HEAD
     git(p, "rm", "-r", "-q", "--cached", ".")
@@ -551,7 +551,7 @@ def test_scope_a_git_dir_that_git_rejects_warns_visibly(tmp):
     set_option(tmp, std / "eng-standards")
     broken = tmp / "broken"
     broken.mkdir()
-    (broken / ".git").write_text("gitdir: /nonexistent/path\n")
+    (broken / ".git").write_text("gitdir: /nonexistent/path\n", encoding="utf-8", newline="\n")
     assert_warned(*run_shim(edit(broken / "a", broken), tmp, broken), needle="git rejects")
 
 
@@ -613,7 +613,7 @@ def test_locate_the_option_under_an_options_key(tmp):
     cfg = tmp / "home" / ".claude"
     cfg.mkdir(parents=True)
     (cfg / "settings.json").write_text(json.dumps(
-        {"pluginConfigs": {"engstd@m": {"options": {"engstd_root": str(std / "eng-standards")}}}}))
+        {"pluginConfigs": {"engstd@m": {"options": {"engstd_root": str(std / "eng-standards")}}}}), encoding="utf-8", newline="\n")
     assert run_shim(edit(std / "eng-standards" / "x", proj), tmp, proj)[0] == 2
 
 
@@ -669,10 +669,11 @@ def test_locate_a_local_submodule_url_is_not_a_fallback(tmp):
     std = make_std(tmp)
     proj = make_project(tmp)
     (proj / ".gitmodules").write_text('[submodule "_tools/eng-tools"]\n\tpath = _tools/eng-tools\n'
-                                      f"\turl = file://{std / 'eng-tools'}\n")
+                                      f"\turl = file://{std / 'eng-tools'}\n", encoding="utf-8", newline="\n")
     assert_warned(*run_shim(edit(std / "eng-standards" / "x", proj), tmp, proj))
 
 
+@only_on("posix")                          # os.mkfifo: no FIFOs on Windows
 def test_locate_a_fifo_in_place_of_the_settings_file_does_not_hang(tmp):
     proj = make_project(tmp)
     cfg = tmp / "home" / ".claude"
@@ -687,9 +688,9 @@ def test_bypass_eng_toml_and_cwd_stub_cannot_switch_the_guard_off(tmp):
     into a folder that holds one. Edits to eng-standards stay blocked."""
     std, proj = guarded(tmp)
     fake = make_std(tmp, guard_text=PERMISSIVE_GUARD, name="fake")
-    (proj / "eng.toml").write_text(f'eng_standards = "{fake / "eng-standards"}"\n')
+    (proj / "eng.toml").write_text(f'eng_standards = "{fake / "eng-standards"}"\n', encoding="utf-8", newline="\n")
     (proj / "hooks").mkdir()
-    (proj / "hooks" / "guard_auditor.py").write_text(PERMISSIVE_GUARD)
+    (proj / "hooks" / "guard_auditor.py").write_text(PERMISSIVE_GUARD, encoding="utf-8", newline="\n")
     for cwd in (proj, fake / "eng-tools", fake / "eng-standards"):
         code, out, err = run_shim(edit(std / "eng-standards" / "lights.yaml", cwd), tmp, proj)
         assert code == 2, f"guard switched off from cwd {cwd}: exit {code}"
@@ -713,7 +714,7 @@ def _fake_tools(tmp):
     fake = tmp / "fakebin"
     fake.mkdir()
     for prog in ("python3", "git"):
-        (fake / prog).write_text(f"#!/bin/sh\ntouch '{tmp}/ran-fake-{prog}'\nexit 0\n")
+        (fake / prog).write_text(f"#!/bin/sh\ntouch '{tmp}/ran-fake-{prog}'\nexit 0\n", encoding="utf-8", newline="\n")
         (fake / prog).chmod(0o755)
     return fake
 
@@ -723,7 +724,7 @@ def test_launcher_and_git_ignore_the_sessions_path_and_python_env(tmp):
     PYTHONPATH with a sitecustomize; neither is used."""
     std, proj = guarded(tmp)
     fake = _fake_tools(tmp)
-    (fake / "sitecustomize.py").write_text(f"open('{tmp}/ran-sitecustomize', 'w').close()\n")
+    (fake / "sitecustomize.py").write_text(f"open('{tmp}/ran-sitecustomize', 'w').close()\n", encoding="utf-8", newline="\n")
     # PYTHONVERBOSE is not unset by the launcher: only `python3 -I` keeps it from printing the
     # interpreter's import trace.
     env = base_env(PATH=f"{fake}{os.pathsep}{os.environ.get('PATH', '')}", PYTHONPATH=str(fake),
@@ -747,11 +748,11 @@ def _launcher_without_python(tmp):
     """A copy of the launcher whose fixed PATH is an empty folder: no python3 anywhere."""
     empty = tmp / "emptybin"
     empty.mkdir()
-    text = LAUNCHER.read_text()
+    text = LAUNCHER.read_text(encoding="utf-8")
     fixed = "PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin"
     assert text.count(fixed) == 1, "the launcher's fixed PATH line moved"
     copy = tmp / "launcher.sh"
-    copy.write_text(text.replace(fixed, f"PATH='{empty.as_posix()}'"), newline="\n")
+    copy.write_text(text.replace(fixed, f"PATH='{empty.as_posix()}'"), newline="\n", encoding="utf-8")
     return copy
 
 
@@ -761,7 +762,7 @@ def test_launcher_without_python3_warns_in_a_project_and_is_silent_elsewhere(tmp
     (proj / "_tools" / "eng-tools" / ".git").mkdir(parents=True)
     by_modules = tmp / "by-modules"
     by_modules.mkdir()
-    (by_modules / ".gitmodules").write_text('[submodule "x"]\n\tpath = ECAD/_tools/eng-tools\n')
+    (by_modules / ".gitmodules").write_text('[submodule "x"]\n\tpath = ECAD/_tools/eng-tools\n', encoding="utf-8", newline="\n")
     other = tmp / "other"
     other.mkdir()
     for d, warned in ((proj, True), (by_modules, True), (other, False), (None, True)):
@@ -782,7 +783,7 @@ CSIDL = {"36": "win", "28": "lad", "38": "pf", "40": "home"}   # the launcher's 
 def _windows_launcher(tmp):
     """A copy of the launcher that takes its Windows branch, with every known folder a temp dir
     (returned by name), on any OS: the folder search is the launcher's own logic, testable here."""
-    text = LAUNCHER.read_text()
+    text = LAUNCHER.read_text(encoding="utf-8")
     case = "case $(uname -s 2>/dev/null) in"
     assert text.count(case) == 1, "the launcher's Windows test moved"
     text = text.replace(case, "case MINGW64_NT-10.0 in")
@@ -794,7 +795,7 @@ def _windows_launcher(tmp):
         dirs[name].mkdir(parents=True)
         text = text.replace(call, f"'{dirs[name].as_posix()}'")
     copy = tmp / "kf" / "launcher.sh"
-    copy.write_text(text, newline="\n")
+    copy.write_text(text, newline="\n", encoding="utf-8")
     return copy, dirs
 
 
@@ -802,7 +803,7 @@ def _fake_python(path, tmp):
     """An executable that records how it was started (POSIX only: Windows runs no #! script)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$0\" \"$@\" \"PY_PYTHON=${{PY_PYTHON-unset}}\" "
-                    f"> '{tmp}/ran-python'\nexit 0\n", newline="\n")
+                    f"> '{tmp}/ran-python'\nexit 0\n", newline="\n", encoding="utf-8")
     path.chmod(0o755)
 
 
@@ -832,7 +833,7 @@ def test_windows_launcher_runs_the_py_launcher_isolated_and_ignores_py_python(tm
     _fake_python(dirs["lad"] / "Programs" / "Python" / "Python313" / "python.exe", tmp)
     r = _run_launcher(copy, {"PY_PYTHON": "2.7", "CLAUDE_PROJECT_DIR": str(tmp)})
     assert r.returncode == 0, (r.returncode, r.stderr)
-    argv = (tmp / "ran-python").read_text().splitlines()
+    argv = (tmp / "ran-python").read_text(encoding="utf-8").splitlines()
     assert argv[0].endswith("/win/py.exe"), f"the py launcher is tried first: {argv}"
     assert argv[1:3] == ["-3", "-I"] and argv[3].endswith("/engstd_guard.py"), argv
     assert argv[-1] == "PY_PYTHON=unset", f"a session's PY_PYTHON reached the py launcher: {argv}"
@@ -845,7 +846,7 @@ def test_windows_launcher_without_py_takes_the_newest_installed_python(tmp):
         _fake_python(dirs["lad"] / "Programs" / "Python" / v / "python.exe", tmp)
     r = _run_launcher(copy, {"CLAUDE_PROJECT_DIR": str(tmp)})
     assert r.returncode == 0, (r.returncode, r.stderr)
-    argv = (tmp / "ran-python").read_text().splitlines()
+    argv = (tmp / "ran-python").read_text(encoding="utf-8").splitlines()
     assert "/Python313/python.exe" in argv[0], f"not the newest: {argv}"
     assert argv[1] == "-I" and argv[2].endswith("/engstd_guard.py"), argv
 
@@ -904,7 +905,7 @@ def test_scope_someone_elses_eng_tools_submodule_does_not_count(tmp):
                                      ("vendor/eng-tools", "https://x.invalid/eng-tools.git"),
                                      ("deps/_tools/eng-tools", "https://x.invalid/other.git"))):
         repo = make_repo(tmp / f"r{i}", "other", path)
-        (repo / ".gitmodules").write_text(f'[submodule "{path}"]\n\tpath = {path}\n\turl = {url}\n')
+        (repo / ".gitmodules").write_text(f'[submodule "{path}"]\n\tpath = {path}\n\turl = {url}\n', encoding="utf-8", newline="\n")
         git(repo, "add", ".gitmodules")
         git(repo, "commit", "-q", "-m", "sub")
         assert_silent_allow(*run_shim(edit(repo / "CLAUDE.md", repo), tmp, repo))
@@ -948,7 +949,7 @@ def test_the_real_guard_through_the_shim(tmp):
     if not real.is_file():
         raise NotChecked(f"no guard_auditor.py at {real}")
     # A copy in a temp <STD> protects that temp folder, because the guard self-locates (ES-052).
-    std = make_std(tmp, guard_text=real.read_text())
+    std = make_std(tmp, guard_text=real.read_text(encoding="utf-8"))
     set_option(tmp, std / "eng-standards")
     proj = make_project(tmp)
     code, out, err = run_shim(edit(std / "eng-standards" / "lights.yaml", proj), tmp, proj)
@@ -1009,7 +1010,7 @@ def test_no_committed_file_carries_a_64_hex_string(tmp):
 
 
 def test_sources_lists_every_skill(tmp):
-    src = (ROOT / "SOURCES.md").read_text()
+    src = (ROOT / "SOURCES.md").read_text(encoding="utf-8")
     for s in SKILLS:
         assert f"skills/{s}/SKILL.md" in src and f"`{s}`" in src, s
 
@@ -1192,17 +1193,17 @@ def main():
     bad = 0
     for fname, label, old, new in MUTANTS:
         target = ROOT / fname
-        src = target.read_text()
+        src = target.read_text(encoding="utf-8")
         if src.count(old) != 1:
             print(f"  STALE     {label}  (target found {src.count(old)}x)")
             bad += 1
             continue
         try:
-            target.write_text(src.replace(old, new))
+            target.write_text(src.replace(old, new), encoding="utf-8", newline="\n")
             r = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--fast", "--quiet"],
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600)
         finally:
-            target.write_text(src)
+            target.write_text(src, encoding="utf-8", newline="\n")
         if r.returncode == 1:
             print(f"  caught    {label}")
         else:
