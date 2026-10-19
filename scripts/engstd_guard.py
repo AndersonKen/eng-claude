@@ -44,6 +44,19 @@ OVERRIDE_VARS = ("ENGSTD_ROOT", "CLAUDE_PLUGIN_OPTION_ENGSTD_ROOT")
 DEFAULT_SUB = "_tools/eng-tools"
 # Programs are looked up only here, never on the PATH a project's settings may have set.
 FIXED_PATH = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin"
+WINDOWS = os.name == "nt"
+# Windows: git is Git for Windows' own git.exe, in a folder Windows names (a known folder, read
+# from the system, not from an environment variable a project's settings could set). A child
+# found by name there would come from the parent's PATH: CreateProcess ignores the child's env.
+# (known folder, path under it)
+WINDOWS_GIT = (("ProgramFiles", "Git/cmd/git.exe"), ("ProgramFilesX86", "Git/cmd/git.exe"),
+               ("UserProgramFiles", "Git/cmd/git.exe"), ("Profile", "scoop/apps/git/current/cmd/git.exe"))
+KNOWN_FOLDERS = {   # FOLDERID_* GUIDs (KnownFolders.h)
+    "ProgramFiles": "{905e63b6-c1bf-494e-b29c-65b732d3d21a}",
+    "ProgramFilesX86": "{7c5a40ef-a0fb-4bfc-874a-c0f2e0b9fa8e}",
+    "UserProgramFiles": "{5cd7aee2-2219-4a67-b85d-6c9ce15660cb}",
+    "Profile": "{5e6c858f-0e22-4760-9afe-ea3317b67173}",
+}
 
 
 class ScopeError(Exception):
@@ -64,12 +77,60 @@ def _is_engstd(path):
         return False
 
 
+# ---------------------------------------------------------------- windows
+
+def known_folder(name):
+    """A Windows known folder (KNOWN_FOLDERS) as the system reports it, or None."""
+    if not WINDOWS:
+        return None
+    import ctypes
+    import uuid
+    from ctypes import wintypes
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD), ("Data3", wintypes.WORD),
+                    ("Data4", ctypes.c_ubyte * 8)]
+
+    u = uuid.UUID(KNOWN_FOLDERS[name])
+    g = GUID(u.time_low, u.time_mid, u.time_hi_version, (ctypes.c_ubyte * 8)(*u.bytes[8:]))
+    out = ctypes.c_wchar_p()
+    try:
+        hr = ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(g), 0, None, ctypes.byref(out))
+    except (OSError, AttributeError):
+        return None
+    try:
+        return Path(out.value) if hr == 0 and out.value else None
+    finally:
+        ctypes.windll.ole32.CoTaskMemFree(out)
+
+
+def git_exe():
+    """Windows: Git for Windows' git.exe from a known folder (WINDOWS_GIT), else None."""
+    for folder, rel in WINDOWS_GIT:
+        base = known_folder(folder)
+        if base is not None and (base / rel).is_file():
+            return base / rel
+    return None
+
+
+def _same(a, b):
+    """Windows paths compare without case: `_TOOLS/Eng-Tools` is `_tools/eng-tools` there."""
+    return a.casefold() == b.casefold() if WINDOWS else a == b
+
+
 # ---------------------------------------------------------------- scope
 
 def _git(args, cwd, env):
     genv = {k: v for k, v in env.items() if not k.startswith("GIT_")}
     genv["PATH"] = FIXED_PATH
-    return subprocess.run(["git", "-C", str(cwd)] + args, stdout=subprocess.PIPE,
+    exe = "git"
+    if WINDOWS:
+        found = git_exe()
+        if found is None:
+            raise OSError("Git for Windows is not installed in "
+                          + ", ".join(f"<{f}>/{r}" for f, r in WINDOWS_GIT))
+        exe, genv["PATH"] = str(found), str(found.parent)
+    return subprocess.run([exe, "-C", str(cwd)] + args, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, env=genv, timeout=20)
 
 
@@ -77,9 +138,11 @@ def _is_eng_tools_submodule(path, url):
     """`_tools/eng-tools` itself, or a `.../_tools/eng-tools` path whose URL's last segment is
     `eng-tools` or `eng-tools.git`. Someone else's `*eng-tools` submodule does not count."""
     path = path.strip().strip("/")
-    if path == DEFAULT_SUB:
+    if _same(path, DEFAULT_SUB):
         return True
     last = re.split(r"[/:]", url.strip().rstrip("/"))[-1] if url else ""
+    if WINDOWS:
+        path, last = path.replace("\\", "/").casefold(), last.casefold()
     return last in ("eng-tools", "eng-tools.git") and path.endswith("/" + DEFAULT_SUB)
 
 
@@ -153,6 +216,11 @@ def project_repo(project_dir, env):
 # ---------------------------------------------------------------- location
 
 def _settings_file(env):
+    if WINDOWS and not env.get("CLAUDE_CONFIG_DIR"):
+        # Claude Code's `~/.claude` is %USERPROFILE%\.claude on Windows. Git Bash sets HOME to
+        # a path of its own, so the profile folder comes from the system (known folder).
+        profile = known_folder("Profile") or Path(env.get("USERPROFILE") or os.path.expanduser("~"))
+        return profile / ".claude" / "settings.json"
     cfg = env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
     return Path(cfg) / "settings.json"
 

@@ -1,16 +1,13 @@
 {
-  "description": "In eng project sessions, run eng-standards' guard_auditor.py (ES-040) on every edit, Bash call and settings change, through a launcher with a fixed PATH and a shim that finds the guard from the plugin's engstd_root option saved in user settings.",
+  "description": "In eng project sessions, run eng-standards' guard_auditor.py (ES-040) on every edit, Bash or PowerShell call and settings change, through a launcher with a fixed PATH and a shim that finds the guard from the plugin's engstd_root option saved in user settings. Shell form, so it runs under sh on macOS and Linux and under Git Bash on Windows (ES-069).",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "command": "/bin/sh",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/scripts/engstd_guard.sh"
-            ],
+            "command": "/bin/sh \"${CLAUDE_PLUGIN_ROOT}/scripts/engstd_guard.sh\"",
             "timeout": 60
           }
         ]
@@ -21,10 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/bin/sh",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/scripts/engstd_guard.sh"
-            ],
+            "command": "/bin/sh \"${CLAUDE_PLUGIN_ROOT}/scripts/engstd_guard.sh\"",
             "timeout": 60
           }
         ],

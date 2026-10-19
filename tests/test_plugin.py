@@ -78,6 +78,54 @@ def eng_tools_dir():
     return Path(env) if env else ROOT.parent / "eng-tools"
 
 
+WINDOWS = os.name == "nt"
+# Windows will not start a process (Python included) without these; a test's minimal env keeps
+# them, and nothing the guard decides depends on them.
+WINDOWS_BASE = ("SYSTEMROOT", "WINDIR", "TEMP", "TMP", "COMSPEC", "PATHEXT")
+
+
+def only_on(*platforms):
+    """A test that can run only on these `os.name`s ("nt", "posix"): it is not collected
+    elsewhere, so another platform neither runs it nor reports it NOT CHECKED."""
+    def mark(fn):
+        fn.platforms = platforms
+        return fn
+    return mark
+
+
+def base_env(**kw):
+    """A minimal environment: on Windows, the variables a process needs to start, plus kw."""
+    env = {k: os.environ[k] for k in WINDOWS_BASE if WINDOWS and k in os.environ}
+    env.update(kw)
+    return env
+
+
+def _shim_module():
+    sys.path.insert(0, str(SHIM.parent))
+    try:
+        import engstd_guard
+        return engstd_guard
+    finally:
+        sys.path.remove(str(SHIM.parent))
+
+
+def posix_sh():
+    """The sh a shell-form hook reaches as `/bin/sh`: /bin/sh, or Git for Windows' sh.exe."""
+    if not WINDOWS:
+        return "/bin/sh"
+    git_exe = _shim_module().git_exe()
+    if git_exe is None:
+        raise NotChecked("Git for Windows not found: no sh to run the launcher with")
+    return str(git_exe.parent.parent / "usr" / "bin" / "sh.exe")
+
+
+def hook_shell():
+    """argv prefix Claude Code uses for a shell-form hook: `sh -c`, or Git Bash on Windows."""
+    if not WINDOWS:
+        return ["/bin/sh", "-c"]
+    return [str(Path(posix_sh()).parent.parent.parent / "bin" / "bash.exe"), "-c"]
+
+
 # ---------------------------------------------------------------- fixtures
 
 def git(cwd, *args, check=True):
@@ -119,6 +167,12 @@ def make_project(tmp, name="proj", sub_path="_tools/eng-tools"):
     return make_repo(tmp, name, sub_path)
 
 
+def settings_dir(tmp):
+    """On Windows the shim reads the profile folder's settings (from the system, not HOME), so a
+    test names its own with CLAUDE_CONFIG_DIR there; elsewhere HOME already does."""
+    return {"CLAUDE_CONFIG_DIR": str(tmp / "home" / ".claude")} if WINDOWS else {}
+
+
 def set_option(tmp, value, key="engstd@engstd-marketplace"):
     cfg = tmp / "home" / ".claude"
     cfg.mkdir(parents=True, exist_ok=True)
@@ -131,8 +185,8 @@ def run_shim(event, tmp, project_dir=None, env_extra=None, raw=None):
     the test's own, never the machine's."""
     home = tmp / "home"
     home.mkdir(exist_ok=True)
-    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home),
-           "CLAUDE_PLUGIN_ROOT": str(ROOT)}
+    env = base_env(PATH=os.environ.get("PATH", "/usr/bin:/bin"), HOME=str(home),
+                   CLAUDE_PLUGIN_ROOT=str(ROOT), **settings_dir(tmp))
     if project_dir is not None:
         env["CLAUDE_PROJECT_DIR"] = str(project_dir)
     env.update(env_extra or {})
@@ -203,19 +257,29 @@ def test_plugin_declares_the_engstd_root_option(tmp):
     assert "pluginConfigs" in SHIM.read_text(), "the shim does not read the saved option"
 
 
+# Shell form (no `args`): sh -c on macOS and Linux, Git Bash on Windows. The exec form
+# (`"command": "/bin/sh"` with `args`) is spawned with no shell, and on Windows `/bin/sh` is
+# no executable at all, so every call would be a hook error there (ES-069). Inside either shell
+# `/bin/sh` is absolute, so the session's PATH still never picks it.
+GUARD_COMMAND = '/bin/sh "${CLAUDE_PLUGIN_ROOT}/scripts/engstd_guard.sh"'
+
+
+def _is_guard_hook(x):
+    return x.get("command") == GUARD_COMMAND and "args" not in x and "shell" not in x
+
+
 def test_hooks_cover_the_guard_events_and_tools(tmp):
     h = C.load_json(ROOT / "hooks" / "hooks.json")["hooks"]
     tools = set()
     for g in h["PreToolUse"]:
         tools |= set(g["matcher"].split("|"))
-        assert any(x["command"] == "/bin/sh" and x.get("args") == ["${CLAUDE_PLUGIN_ROOT}/scripts/engstd_guard.sh"]
-                   for x in g["hooks"]), g
-    assert tools == {"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"}, tools
+        assert any(_is_guard_hook(x) for x in g["hooks"]), g
+    # PowerShell is Claude Code's shell tool on Windows beside Bash (docs: match Bash|PowerShell).
+    assert tools == {"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "PowerShell"}, tools
     sources = set()
     for g in h["ConfigChange"]:
         sources |= set(g.get("matcher", "*").split("|"))
-        assert any(x["command"] == "/bin/sh" and x.get("args") == ["${CLAUDE_PLUGIN_ROOT}/scripts/engstd_guard.sh"]
-                   for x in g["hooks"]), g
+        assert any(_is_guard_hook(x) for x in g["hooks"]), g
     # Settings changes are guarded; skill reloads are not (docs: ConfigChange matcher values).
     assert {"user_settings", "project_settings", "local_settings"} <= sources, sources
     assert "skills" not in sources and "*" not in sources, sources
@@ -637,6 +701,8 @@ def native():
     """Claude Code runs hooks natively. A test interpreter running under Rosetta (x86_64 on
     arm64) would start the launcher translated, and the system python3 stub cannot spawn its
     arm64 binary from there; so spawn the launcher as the host architecture."""
+    if sys.platform != "darwin":
+        return []
     r = subprocess.run(["sysctl", "-n", "sysctl.proc_translated"], stdout=subprocess.PIPE,
                        stderr=subprocess.DEVNULL)
     return ["/usr/bin/arch", "-arm64"] if r.stdout.strip() == b"1" else []
@@ -660,11 +726,14 @@ def test_launcher_and_git_ignore_the_sessions_path_and_python_env(tmp):
     (fake / "sitecustomize.py").write_text(f"open('{tmp}/ran-sitecustomize', 'w').close()\n")
     # PYTHONVERBOSE is not unset by the launcher: only `python3 -I` keeps it from printing the
     # interpreter's import trace.
-    env = {"PATH": f"{fake}:{os.environ.get('PATH', '')}", "PYTHONPATH": str(fake), "PYTHONVERBOSE": "1",
-           "HOME": str(tmp / "home"), "CLAUDE_PROJECT_DIR": str(proj)}
+    env = base_env(PATH=f"{fake}{os.pathsep}{os.environ.get('PATH', '')}", PYTHONPATH=str(fake),
+                   PYTHONVERBOSE="1", HOME=str(tmp / "home"), CLAUDE_PROJECT_DIR=str(proj),
+                   **settings_dir(tmp))
     ev = json.dumps(edit(std / "eng-standards" / "x", proj)).encode()
-    r = subprocess.run(native() + ["/bin/sh", str(LAUNCHER)], input=ev, stdout=subprocess.PIPE,
+    r = subprocess.run(native() + [posix_sh(), LAUNCHER.as_posix()], input=ev, stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE, env=env, timeout=60)
+    if WINDOWS and b"no Python 3 found" in r.stdout:
+        raise NotChecked("no Python in the folders the Windows launcher searches: " + r.stdout.decode())
     assert r.returncode == 2 and b"blocked by stub guard" in r.stderr, (r.returncode, r.stderr[-400:])
     assert b"zipimport" not in r.stderr and b"\nimport " not in r.stderr, "PYTHON* reached the interpreter"
     # The shim run directly (as the tests do) must still find git on its fixed PATH only.
@@ -682,7 +751,7 @@ def _launcher_without_python(tmp):
     fixed = "PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin"
     assert text.count(fixed) == 1, "the launcher's fixed PATH line moved"
     copy = tmp / "launcher.sh"
-    copy.write_text(text.replace(fixed, f"PATH='{empty}'"))
+    copy.write_text(text.replace(fixed, f"PATH='{empty.as_posix()}'"), newline="\n")
     return copy
 
 
@@ -696,8 +765,8 @@ def test_launcher_without_python3_warns_in_a_project_and_is_silent_elsewhere(tmp
     other = tmp / "other"
     other.mkdir()
     for d, warned in ((proj, True), (by_modules, True), (other, False), (None, True)):
-        env = {"CLAUDE_PROJECT_DIR": str(d)} if d else {}
-        r = subprocess.run(["/bin/sh", str(copy)], input=b"{}", stdout=subprocess.PIPE,
+        env = base_env(**({"CLAUDE_PROJECT_DIR": str(d)} if d else {}))
+        r = subprocess.run([posix_sh(), copy.as_posix()], input=b"{}", stdout=subprocess.PIPE,
                            stderr=subprocess.PIPE, env=env, timeout=30)
         out = r.stdout.decode()
         assert r.returncode == 0, (d, r.returncode, r.stderr)
@@ -705,6 +774,126 @@ def test_launcher_without_python3_warns_in_a_project_and_is_silent_elsewhere(tmp
             assert "NOT GUARDED" in json.loads(out)["systemMessage"], (d, out)
         else:
             assert out == "" and r.stderr == b"", (d, out, r.stderr)
+
+
+CSIDL = {"36": "win", "28": "lad", "38": "pf", "40": "home"}   # the launcher's cygpath -F lookups
+
+
+def _windows_launcher(tmp):
+    """A copy of the launcher that takes its Windows branch, with every known folder a temp dir
+    (returned by name), on any OS: the folder search is the launcher's own logic, testable here."""
+    text = LAUNCHER.read_text()
+    case = "case $(uname -s 2>/dev/null) in"
+    assert text.count(case) == 1, "the launcher's Windows test moved"
+    text = text.replace(case, "case MINGW64_NT-10.0 in")
+    dirs = {}
+    for n, name in CSIDL.items():
+        call = f"$(cygpath -u -F {n} 2>/dev/null)"
+        assert text.count(call) == 1, f"the launcher's {name} lookup moved"
+        dirs[name] = tmp / "kf" / name
+        dirs[name].mkdir(parents=True)
+        text = text.replace(call, f"'{dirs[name].as_posix()}'")
+    copy = tmp / "kf" / "launcher.sh"
+    copy.write_text(text, newline="\n")
+    return copy, dirs
+
+
+def _fake_python(path, tmp):
+    """An executable that records how it was started (POSIX only: Windows runs no #! script)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$0\" \"$@\" \"PY_PYTHON=${{PY_PYTHON-unset}}\" "
+                    f"> '{tmp}/ran-python'\nexit 0\n", newline="\n")
+    path.chmod(0o755)
+
+
+def _run_launcher(copy, env):
+    return subprocess.run([posix_sh(), copy.as_posix()], input=b"{}", stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, env=base_env(**env), timeout=30)
+
+
+def test_windows_launcher_with_no_python_warns_in_a_project_and_is_silent_elsewhere(tmp):
+    copy, _dirs = _windows_launcher(tmp)
+    proj = tmp / "proj"
+    (proj / "_tools" / "eng-tools" / ".git").mkdir(parents=True)
+    other = tmp / "other"
+    other.mkdir()
+    r = _run_launcher(copy, {"CLAUDE_PROJECT_DIR": str(proj)})
+    assert r.returncode == 0, (r.returncode, r.stderr)
+    msg = json.loads(r.stdout.decode())["systemMessage"]
+    assert "NOT GUARDED" in msg and "no Python 3 found" in msg, msg
+    r = _run_launcher(copy, {"CLAUDE_PROJECT_DIR": str(other)})
+    assert (r.returncode, r.stdout, r.stderr) == (0, b"", b""), (r.returncode, r.stdout, r.stderr)
+
+
+@only_on("posix")
+def test_windows_launcher_runs_the_py_launcher_isolated_and_ignores_py_python(tmp):
+    copy, dirs = _windows_launcher(tmp)
+    _fake_python(dirs["win"] / "py.exe", tmp)
+    _fake_python(dirs["lad"] / "Programs" / "Python" / "Python313" / "python.exe", tmp)
+    r = _run_launcher(copy, {"PY_PYTHON": "2.7", "CLAUDE_PROJECT_DIR": str(tmp)})
+    assert r.returncode == 0, (r.returncode, r.stderr)
+    argv = (tmp / "ran-python").read_text().splitlines()
+    assert argv[0].endswith("/win/py.exe"), f"the py launcher is tried first: {argv}"
+    assert argv[1:3] == ["-3", "-I"] and argv[3].endswith("/engstd_guard.py"), argv
+    assert argv[-1] == "PY_PYTHON=unset", f"a session's PY_PYTHON reached the py launcher: {argv}"
+
+
+@only_on("posix")
+def test_windows_launcher_without_py_takes_the_newest_installed_python(tmp):
+    copy, dirs = _windows_launcher(tmp)
+    for v in ("Python311", "Python313"):
+        _fake_python(dirs["lad"] / "Programs" / "Python" / v / "python.exe", tmp)
+    r = _run_launcher(copy, {"CLAUDE_PROJECT_DIR": str(tmp)})
+    assert r.returncode == 0, (r.returncode, r.stderr)
+    argv = (tmp / "ran-python").read_text().splitlines()
+    assert "/Python313/python.exe" in argv[0], f"not the newest: {argv}"
+    assert argv[1] == "-I" and argv[2].endswith("/engstd_guard.py"), argv
+
+
+def test_windows_scope_compares_submodule_paths_without_case(tmp):
+    """On Windows `_TOOLS/Eng-Tools` is the same folder as `_tools/eng-tools`; a gitlink there
+    must keep the session in scope. Elsewhere case is significant, as git's is."""
+    shim = _shim_module()
+    saved = shim.WINDOWS
+    try:
+        shim.WINDOWS = True
+        assert shim._is_eng_tools_submodule("_TOOLS/Eng-Tools", "")
+        assert shim._is_eng_tools_submodule("ECAD/_Tools/ENG-TOOLS", "https://x.invalid/Eng-Tools.git")
+        assert not shim._is_eng_tools_submodule("ECAD/_tools/eng-tools", "https://x.invalid/other.git")
+        shim.WINDOWS = False
+        assert not shim._is_eng_tools_submodule("_TOOLS/Eng-Tools", "")
+        assert shim._is_eng_tools_submodule("_tools/eng-tools", "")
+    finally:
+        shim.WINDOWS = saved
+
+
+@only_on("nt")
+def test_windows_git_and_settings_come_from_known_folders(tmp):
+    shim = _shim_module()
+    profile = shim.known_folder("Profile")
+    assert profile is not None and profile.is_dir(), profile
+    found = shim.git_exe()
+    assert found is not None and found.name == "git.exe" and found.is_file(), found
+    assert shim._settings_file({}) == profile / ".claude" / "settings.json"
+    cfg = tmp / "cfg"
+    assert shim._settings_file({"CLAUDE_CONFIG_DIR": str(cfg)}) == cfg / "settings.json"
+    # HOME (Git Bash sets one of its own) does not move the settings file.
+    assert shim._settings_file({"HOME": str(tmp)}) == profile / ".claude" / "settings.json"
+
+
+def test_the_hook_command_runs_through_the_shell_claude_code_uses(tmp):
+    """The hooks.json command itself, as Claude Code runs a shell-form hook (`sh -c`; Git Bash
+    on Windows), with ${CLAUDE_PLUGIN_ROOT} given the forward-slash form Claude Code uses."""
+    std, proj = guarded(tmp)
+    command = GUARD_COMMAND.replace("${CLAUDE_PLUGIN_ROOT}", ROOT.as_posix())
+    ev = json.dumps(edit(std / "eng-standards" / "x", proj)).encode()
+    r = subprocess.run(native() + hook_shell() + [command], input=ev, stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE, env=base_env(PATH=os.environ.get("PATH", ""),
+                       HOME=str(tmp / "home"), CLAUDE_PROJECT_DIR=str(proj), **settings_dir(tmp)),
+                       timeout=60)
+    if WINDOWS and b"no Python 3 found" in r.stdout:
+        raise NotChecked("no Python in the folders the Windows launcher searches: " + r.stdout.decode())
+    assert r.returncode == 2 and b"blocked by stub guard" in r.stderr, (r.returncode, r.stdout, r.stderr[-400:])
 
 
 def test_scope_someone_elses_eng_tools_submodule_does_not_count(tmp):
@@ -778,8 +967,8 @@ def test_the_real_guard_through_the_shim(tmp):
 def test_where_reports_both_values_and_uses_the_saved_one(tmp):
     std, proj = guarded(tmp)
     fake = make_std(tmp, guard_text=PERMISSIVE_GUARD, name="fake")
-    base = {"PATH": os.environ.get("PATH", ""), "HOME": str(tmp / "home"),
-            "ENGSTD_ROOT": str(fake / "eng-standards")}
+    base = base_env(PATH=os.environ.get("PATH", ""), HOME=str(tmp / "home"),
+                    ENGSTD_ROOT=str(fake / "eng-standards"), **settings_dir(tmp))
     r = subprocess.run([sys.executable, str(SHIM), "--where", str(proj)], stdout=subprocess.PIPE,
                        timeout=60, env=base)
     out = r.stdout.decode()
@@ -862,7 +1051,8 @@ def test_claude_plugin_validate_passes(tmp):
 
 
 # Collected after the last test so an added test is never silently skipped.
-TESTS = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
+TESTS = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)
+         and os.name in getattr(f, "platforms", (os.name,))]
 SLOW = {"test_neutrality_scan_has_zero_hits", "test_claude_plugin_validate_passes"}
 
 MUTANTS = [
@@ -932,6 +1122,23 @@ MUTANTS = [
      "| `skills/mcad-env/SKILL.md` | `mcad-env` |", "| `skills/mcad-env/SKILL.md` | `mcad-env` | " + "ab" * 32 + " |"),
     ("hooks/hooks.json", "skill reloads blocked by the ConfigChange hook",
      '"matcher": "user_settings|project_settings|local_settings"', '"matcher": "*"'),
+    # ES-069: Windows.
+    ("hooks/hooks.json", "PowerShell calls are not guarded",
+     '"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell"',
+     '"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash"'),
+    ("hooks/hooks.json", "the launcher is found on the session's PATH",
+     '"command": "/bin/sh \\"${CLAUDE_PLUGIN_ROOT}/scripts/engstd_guard.sh\\"",\n            "timeout": 60\n          }\n        ]\n      }\n    ],\n    "ConfigChange"',
+     '"command": "sh \\"${CLAUDE_PLUGIN_ROOT}/scripts/engstd_guard.sh\\"",\n            "timeout": 60\n          }\n        ]\n      }\n    ],\n    "ConfigChange"'),
+    ("scripts/engstd_guard.sh", "the Windows launcher lets PY_PYTHON choose the interpreter",
+     "unset PY_PYTHON PY_PYTHON3 PYLAUNCHER_ALLOW_INSTALL PYLAUNCHER_ALWAYS_INSTALL\n", "\n"),
+    ("scripts/engstd_guard.sh", "the py launcher runs without -I",
+     'exec "$py" -3 -I "$(dirname "$0")/engstd_guard.py"', 'exec "$py" -3 "$(dirname "$0")/engstd_guard.py"'),
+    ("scripts/engstd_guard.sh", "the Windows launcher takes the oldest Python",
+     '[ -f "$py" ] && found=$py', '[ -f "$py" ] && [ -z "$found" ] && found=$py'),
+    ("scripts/engstd_guard.sh", "no Windows Python is silent even in a project",
+     '        not_guarded "no Python 3 found', '        exit 0; not_guarded "no Python 3 found'),
+    ("scripts/engstd_guard.py", "Windows scope compares submodule paths with case",
+     "    if WINDOWS:\n        path, last = path.replace", "    if False:\n        path, last = path.replace"),
 ]
 
 
